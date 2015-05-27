@@ -1,177 +1,524 @@
 package io.seniorzhai.generallibrary;
 
+import android.os.AsyncTask;
+
+
 import java.io.BufferedReader;
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.InputStreamReader;
-import java.io.PrintWriter;
 import java.net.HttpURLConnection;
+import java.net.MalformedURLException;
 import java.net.URL;
+import java.text.SimpleDateFormat;
+import java.util.Iterator;
+import java.util.Locale;
+import java.util.Map;
+
 
 /**
  * Created by zhaitao on 15/5/27.
  */
 public class HttpUtils {
-    private static final int TIMEOUT_IN_MILLIONS = 5000;
+    public static final String EXPIRES = "expires";
+    public static final String CACHE_CONTROL = "cache-control";
+    /**
+     * url and para separator *
+     */
+    public static final String URL_AND_PARA_SEPARATOR = "?";
+    /**
+     * parameters separator *
+     */
+    public static final String PARAMETERS_SEPARATOR = "&";
+    /**
+     * paths separator *
+     */
+    public static final String PATHS_SEPARATOR = "/";
+    /**
+     * equal sign *
+     */
+    public static final String EQUAL_SIGN = "=";
 
-    public interface CallBack {
-        void onRequestComplete(String result);
-    }
-
-
-    // 异步的Get请求
-    public static void doGetAsyn(final String urlStr, final CallBack callBack) {
-        new Thread() {
-            public void run() {
-                try {
-                    String result = doGet(urlStr);
-                    if (callBack != null) {
-                        callBack.onRequestComplete(result);
-                    }
-                } catch (Exception e) {
-                    e.printStackTrace();
-                }
-
-            }
-
-            ;
-        }.start();
-    }
-
-    // 异步的Post请求
-
-    public static void doPostAsyn(final String urlStr, final String params,
-                                  final CallBack callBack) throws Exception {
-        new Thread() {
-            public void run() {
-                try {
-                    String result = doPost(urlStr, params);
-                    if (callBack != null) {
-                        callBack.onRequestComplete(result);
-                    }
-                } catch (Exception e) {
-                    e.printStackTrace();
-                }
-
-            }
-
-            ;
-        }.start();
-
-    }
-
-    // Get请求，获得返回数据
-    public static String doGet(String urlStr) {
-        URL url = null;
-        HttpURLConnection conn = null;
-        InputStream is = null;
-        ByteArrayOutputStream baos = null;
-        try {
-            url = new URL(urlStr);
-            conn = (HttpURLConnection) url.openConnection();
-            conn.setReadTimeout(TIMEOUT_IN_MILLIONS);
-            conn.setConnectTimeout(TIMEOUT_IN_MILLIONS);
-            conn.setRequestMethod("GET");
-            conn.setRequestProperty("accept", "*/*");
-            conn.setRequestProperty("connection", "Keep-Alive");
-            if (conn.getResponseCode() == 200) {
-                is = conn.getInputStream();
-                baos = new ByteArrayOutputStream();
-                int len = -1;
-                byte[] buf = new byte[128];
-
-                while ((len = is.read(buf)) != -1) {
-                    baos.write(buf, 0, len);
-                }
-                baos.flush();
-                return baos.toString();
-            } else {
-                throw new RuntimeException(" responseCode is not 200 ... ");
-            }
-
-        } catch (Exception e) {
-            e.printStackTrace();
-        } finally {
-            try {
-                if (is != null)
-                    is.close();
-            } catch (IOException e) {
-            }
-            try {
-                if (baos != null)
-                    baos.close();
-            } catch (IOException e) {
-            }
-            conn.disconnect();
-        }
-
-        return null;
-
+    private HttpUtils() {
+        throw new AssertionError();
     }
 
     /**
-     * 向指定 URL 发送POST方法的请求
+     * http get synchronous
+     * <ul>
+     * <li>use gzip compression default</li>
+     * <li>use bufferedReader to improve the reading speed</li>
+     * </ul>
      *
-     * @param url   发送请求的 URL
-     * @param param 请求参数，请求参数应该是 name1=value1&name2=value2 的形式。
-     * @return 所代表远程资源的响应结果
-     * @throws Exception
+     * @param request
+     * @return the response of the url, if null represents http error
      */
-    public static String doPost(String url, String param) {
-        PrintWriter out = null;
-        BufferedReader in = null;
-        String result = "";
-        try {
-            URL realUrl = new URL(url);
-            // 打开和URL之间的连接
-            HttpURLConnection conn = (HttpURLConnection) realUrl
-                    .openConnection();
-            // 设置通用的请求属性
-            conn.setRequestProperty("accept", "*/*");
-            conn.setRequestProperty("connection", "Keep-Alive");
-            conn.setRequestMethod("POST");
-            conn.setRequestProperty("Content-Type",
-                    "application/x-www-form-urlencoded");
-            conn.setRequestProperty("charset", "utf-8");
-            conn.setUseCaches(false);
-            // 发送POST请求必须设置如下两行
-            conn.setDoOutput(true);
-            conn.setDoInput(true);
-            conn.setReadTimeout(TIMEOUT_IN_MILLIONS);
-            conn.setConnectTimeout(TIMEOUT_IN_MILLIONS);
+    public static HttpResponse httpGet(HttpRequest request) {
+        if (request == null) {
+            return null;
+        }
 
-            if (param != null && !param.trim().equals("")) {
-                // 获取URLConnection对象对应的输出流
-                out = new PrintWriter(conn.getOutputStream());
-                // 发送请求参数
-                out.print(param);
-                // flush输出流的缓冲
-                out.flush();
+        BufferedReader input = null;
+        HttpURLConnection con = null;
+        try {
+            URL url = new URL(request.getUrl());
+            try {
+                HttpResponse response = new HttpResponse(request.getUrl());
+                // default gzip encode
+                con = (HttpURLConnection) url.openConnection();
+                setURLConnection(request, con);
+                input = new BufferedReader(new InputStreamReader(con.getInputStream()));
+                StringBuilder sb = new StringBuilder();
+                String s;
+                while ((s = input.readLine()) != null) {
+                    sb.append(s).append("\n");
+                }
+                response.setResponseBody(sb.toString());
+                setHttpResponse(con, response);
+                return response;
+            } catch (IOException e) {
+                e.printStackTrace();
             }
-            // 定义BufferedReader输入流来读取URL的响应
-            in = new BufferedReader(
-                    new InputStreamReader(conn.getInputStream()));
-            String line;
-            while ((line = in.readLine()) != null) {
-                result += line;
+        } catch (MalformedURLException e1) {
+            e1.printStackTrace();
+        } finally {
+            // close buffered
+            if (input != null) {
+                try {
+                    input.close();
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
             }
+            // disconnecting releases the resources held by a connection so they may be closed or reused
+            if (con != null) {
+                con.disconnect();
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * http get synchronous
+     *
+     * @param httpUrl
+     * @return the response of the url, if null represents http error
+     * @see HttpUtils#httpGet(HttpRequest)
+     */
+    public static HttpResponse httpGet(String httpUrl) {
+        return httpGet(new HttpRequest(httpUrl));
+    }
+
+    /**
+     * http get synchronous
+     *
+     * @param request
+     * @return the content of the url, if null represents http error
+     * @see HttpUtils#httpGet(HttpRequest)
+     */
+    public static String httpGetString(HttpRequest request) {
+        HttpResponse response = httpGet(request);
+        return response == null ? null : response.getResponseBody();
+    }
+
+    /**
+     * http get synchronous
+     *
+     * @param httpUrl
+     * @return the content of the url, if null represents http error
+     * @see HttpUtils#httpGet(HttpRequest)
+     */
+    public static String httpGetString(String httpUrl) {
+        HttpResponse response = httpGet(new HttpRequest(httpUrl));
+        return response == null ? null : response.getResponseBody();
+    }
+
+    /**
+     * http get asynchronous
+     * <ul>
+     * <li>It gets data from network asynchronous.</li>
+     * <li>If you want get data synchronous, use {@link #httpGet(HttpRequest)} or {@link #httpGetString(HttpRequest)}</li>
+     * </ul>
+     *
+     * @param url
+     * @param listener listener which can do something before or after HttpGet. this can be null if you not want to do
+     *                 something
+     */
+    public static void httpGet(String url, HttpListener listener) {
+        new HttpStringAsyncTask(listener).execute(url);
+    }
+
+    /**
+     * http get asynchronous
+     *
+     * @param request
+     * @param listener listener which can do something before or after HttpGet. this can be null if you not want to do
+     *                 something
+     */
+    public static void httpGet(HttpRequest request, HttpListener listener) {
+        new HttpRequestAsyncTask(listener).execute(request);
+    }
+
+    /**
+     * http post
+     *
+     * @return the response of the url, if null represents http error
+     */
+    public static HttpResponse httpPost(HttpRequest request) {
+        if (request == null) {
+            return null;
+        }
+
+        BufferedReader input = null;
+        HttpURLConnection con = null;
+        try {
+            URL url = new URL(request.getUrl());
+            try {
+                HttpResponse response = new HttpResponse(request.getUrl());
+                // default gzip encode
+                con = (HttpURLConnection) url.openConnection();
+                setURLConnection(request, con);
+                con.setRequestMethod("POST");
+                con.setDoOutput(true);
+                String paras = request.getParas();
+                if (!StringUtils.isEmpty(paras)) {
+                    con.getOutputStream().write(paras.getBytes());
+                }
+                input = new BufferedReader(new InputStreamReader(con.getInputStream()));
+                StringBuilder sb = new StringBuilder();
+                String s;
+                while ((s = input.readLine()) != null) {
+                    sb.append(s).append("\n");
+                }
+                response.setResponseBody(sb.toString());
+                setHttpResponse(con, response);
+                return response;
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        } catch (MalformedURLException e1) {
+            e1.printStackTrace();
+        } finally {
+            // close buffered
+            if (input != null) {
+                try {
+                    input.close();
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+            }
+            // disconnecting releases the resources held by a connection so they may be closed or reused
+            if (con != null) {
+                con.disconnect();
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * http post
+     *
+     * @param httpUrl
+     * @return the response of the url, if null represents http error
+     * @see HttpUtils#httpPost(HttpRequest)
+     */
+    public static HttpResponse httpPost(String httpUrl) {
+        return httpPost(new HttpRequest(httpUrl));
+    }
+
+    /**
+     * http post
+     *
+     * @param httpUrl
+     * @return the content of the url, if null represents http error
+     * @see HttpUtils#httpPost(HttpRequest)
+     */
+    public static String httpPostString(String httpUrl) {
+        HttpResponse response = httpPost(new HttpRequest(httpUrl));
+        return response == null ? null : response.getResponseBody();
+    }
+
+    /**
+     * http post
+     *
+     * @param httpUrl
+     * @param parasMap paras map, key is para name, value is para value. will be transfrom to String by
+     *                 {@link HttpUtils#joinParas(Map)}
+     * @return the content of the url, if null represents http error
+     * @see HttpUtils#httpPost(HttpRequest)
+     */
+    public static String httpPostString(String httpUrl, Map<String, String> parasMap) {
+        HttpResponse response = httpPost(new HttpRequest(httpUrl, parasMap));
+        return response == null ? null : response.getResponseBody();
+    }
+
+    /**
+     * join url and paras
+     * <p/>
+     * <pre>
+     * getUrlWithParas(null, {(a, b)})                        =   "?a=b";
+     * getUrlWithParas("baidu.com", {})                       =   "baidu.com";
+     * getUrlWithParas("baidu.com", {(a, b), (i, j)})         =   "baidu.com?a=b&i=j";
+     * getUrlWithParas("baidu.com", {(a, b), (i, j), (c, d)}) =   "baidu.com?a=b&i=j&c=d";
+     * </pre>
+     *
+     * @param url      url
+     * @param parasMap paras map, key is para name, value is para value
+     * @return if url is null, process it as empty string
+     */
+    public static String getUrlWithParas(String url, Map<String, String> parasMap) {
+        StringBuilder urlWithParas = new StringBuilder(StringUtils.isEmpty(url) ? "" : url);
+        String paras = joinParas(parasMap);
+        if (!StringUtils.isEmpty(paras)) {
+            urlWithParas.append(URL_AND_PARA_SEPARATOR).append(paras);
+        }
+        return urlWithParas.toString();
+    }
+
+    /**
+     * join url and encoded paras
+     *
+     * @param url
+     * @param parasMap
+     * @return
+     * @see #getUrlWithParas(String, Map)
+     * @see StringUtils#utf8Encode(String)
+     */
+    public static String getUrlWithValueEncodeParas(String url, Map<String, String> parasMap) {
+        StringBuilder urlWithParas = new StringBuilder(StringUtils.isEmpty(url) ? "" : url);
+        String paras = joinParasWithEncodedValue(parasMap);
+        if (!StringUtils.isEmpty(paras)) {
+            urlWithParas.append(URL_AND_PARA_SEPARATOR).append(paras);
+        }
+        return urlWithParas.toString();
+    }
+
+    /**
+     * join paras
+     *
+     * @param parasMap paras map, key is para name, value is para value
+     * @return join key and value with {@link #EQUAL_SIGN}, join keys with {@link #PARAMETERS_SEPARATOR}
+     */
+    public static String joinParas(Map<String, String> parasMap) {
+        if (parasMap == null || parasMap.size() == 0) {
+            return null;
+        }
+
+        StringBuilder paras = new StringBuilder();
+        Iterator<Map.Entry<String, String>> ite = parasMap.entrySet().iterator();
+        while (ite.hasNext()) {
+            Map.Entry<String, String> entry = (Map.Entry<String, String>) ite.next();
+            paras.append(entry.getKey()).append(EQUAL_SIGN).append(entry.getValue());
+            if (ite.hasNext()) {
+                paras.append(PARAMETERS_SEPARATOR);
+            }
+        }
+        return paras.toString();
+    }
+
+    /**
+     * join paras with encoded value
+     *
+     * @param parasMap
+     * @return
+     * @see #joinParas(Map)
+     * @see StringUtils#utf8Encode(String)
+     */
+    public static String joinParasWithEncodedValue(Map<String, String> parasMap) {
+        StringBuilder paras = new StringBuilder("");
+        if (parasMap != null && parasMap.size() > 0) {
+            Iterator<Map.Entry<String, String>> ite = parasMap.entrySet().iterator();
+            try {
+                while (ite.hasNext()) {
+                    Map.Entry<String, String> entry = (Map.Entry<String, String>) ite.next();
+                    paras.append(entry.getKey()).append(EQUAL_SIGN).append(StringUtils.utf8Encode(entry.getValue()));
+                    if (ite.hasNext()) {
+                        paras.append(PARAMETERS_SEPARATOR);
+                    }
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }
+        return paras.toString();
+    }
+
+    /**
+     * append a key and value pair to url
+     *
+     * @param url
+     * @param paraKey
+     * @param paraValue
+     * @return
+     */
+    public static String appendParaToUrl(String url, String paraKey, String paraValue) {
+        if (StringUtils.isEmpty(url)) {
+            return url;
+        }
+
+        StringBuilder sb = new StringBuilder(url);
+        if (!url.contains(URL_AND_PARA_SEPARATOR)) {
+            sb.append(URL_AND_PARA_SEPARATOR);
+        } else {
+            sb.append(PARAMETERS_SEPARATOR);
+        }
+        return sb.append(paraKey).append(EQUAL_SIGN).append(paraValue).toString();
+    }
+
+    private static final SimpleDateFormat GMT_FORMAT = new SimpleDateFormat("EEE, d MMM yyyy HH:mm:ss z",
+            Locale.ENGLISH);
+
+    /**
+     * parse gmt time to long
+     *
+     * @param gmtTime likes Thu, 11 Apr 2013 10:20:30 GMT
+     * @return -1 represents exception otherwise time in milliseconds
+     */
+    public static long parseGmtTime(String gmtTime) {
+        try {
+            return GMT_FORMAT.parse(gmtTime).getTime();
         } catch (Exception e) {
             e.printStackTrace();
         }
-        // 使用finally块来关闭输出流、输入流
-        finally {
-            try {
-                if (out != null) {
-                    out.close();
-                }
-                if (in != null) {
-                    in.close();
-                }
-            } catch (IOException ex) {
-                ex.printStackTrace();
+        return -1;
+    }
+
+    /**
+     * set HttpRequest to HttpURLConnection
+     *
+     * @param request       source request
+     * @param urlConnection destin url connection
+     */
+    private static void setURLConnection(HttpRequest request, HttpURLConnection urlConnection) {
+        if (request == null || urlConnection == null) {
+            return;
+        }
+
+        setURLConnection(request.getRequestProperties(), urlConnection);
+        if (request.getConnectTimeout() >= 0) {
+            urlConnection.setConnectTimeout(request.getConnectTimeout());
+        }
+        if (request.getReadTimeout() >= 0) {
+            urlConnection.setReadTimeout(request.getReadTimeout());
+        }
+    }
+
+    /**
+     * set HttpURLConnection property
+     *
+     * @param requestProperties
+     * @param urlConnection
+     */
+    public static void setURLConnection(Map<String, String> requestProperties, HttpURLConnection urlConnection) {
+        if (MapUtils.isEmpty(requestProperties) || urlConnection == null) {
+            return;
+        }
+
+        for (Map.Entry<String, String> entry : requestProperties.entrySet()) {
+            if (!StringUtils.isEmpty(entry.getKey())) {
+                urlConnection.setRequestProperty(entry.getKey(), entry.getValue());
             }
         }
-        return result;
+    }
+
+    /**
+     * set HttpURLConnection to HttpResponse
+     *
+     * @param urlConnection source url connection
+     * @param response      destin response
+     */
+    private static void setHttpResponse(HttpURLConnection urlConnection, HttpResponse response) {
+        if (response == null || urlConnection == null) {
+            return;
+        }
+        try {
+            response.setResponseCode(urlConnection.getResponseCode());
+        } catch (IOException e) {
+            response.setResponseCode(-1);
+        }
+        response.setResponseHeader(EXPIRES, urlConnection.getHeaderField("Expires"));
+        response.setResponseHeader(CACHE_CONTROL, urlConnection.getHeaderField("Cache-Control"));
+    }
+
+    /**
+     * AsyncTask to get data by String url
+     *
+     * @author <a href="http://www.trinea.cn" target="_blank">Trinea</a> 2013-11-15
+     */
+    private static class HttpStringAsyncTask extends AsyncTask<String, Void, HttpResponse> {
+
+        private HttpListener listener;
+
+        public HttpStringAsyncTask(HttpListener listener) {
+            this.listener = listener;
+        }
+
+        protected HttpResponse doInBackground(String... url) {
+            if (ArrayUtils.isEmpty(url)) {
+                return null;
+            }
+            return httpGet(url[0]);
+        }
+
+        protected void onPreExecute() {
+            if (listener != null) {
+                listener.onPreGet();
+            }
+        }
+
+        protected void onPostExecute(HttpResponse httpResponse) {
+            if (listener != null) {
+                listener.onPostGet(httpResponse);
+            }
+        }
+    }
+
+    /**
+     * AsyncTask to get data by HttpRequest
+     */
+    private static class HttpRequestAsyncTask extends AsyncTask<HttpRequest, Void, HttpResponse> {
+
+        private HttpListener listener;
+
+        public HttpRequestAsyncTask(HttpListener listener) {
+            this.listener = listener;
+        }
+
+        protected HttpResponse doInBackground(HttpRequest... httpRequest) {
+            if (ArrayUtils.isEmpty(httpRequest)) {
+                return null;
+            }
+            return httpGet(httpRequest[0]);
+        }
+
+        protected void onPreExecute() {
+            if (listener != null) {
+                listener.onPreGet();
+            }
+        }
+
+        protected void onPostExecute(HttpResponse httpResponse) {
+            if (listener != null) {
+                listener.onPostGet(httpResponse);
+            }
+        }
+    }
+
+    public static abstract class HttpListener {
+
+        /**
+         * Runs on the UI thread before httpGet.<br/>
+         */
+        protected void onPreGet() {
+        }
+
+        /**
+         * Runs on the UI thread after httpGet. The httpResponse is returned by httpGet.
+         *
+         * @param httpResponse get by the url
+         */
+        protected void onPostGet(HttpResponse httpResponse) {
+        }
     }
 }

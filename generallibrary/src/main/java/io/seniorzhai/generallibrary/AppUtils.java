@@ -11,7 +11,6 @@ public class AppUtils {
     private AppUtils() {
         /* cannot be instantiated */
         throw new UnsupportedOperationException("cannot be instantiated");
-
     }
 
     // 获取应用程序名称
